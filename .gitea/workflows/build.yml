@@ -13,12 +13,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
-      - name: Install AWS CLI
+    - name: Install AWS CLI
       run: |
         set -e
         curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
         unzip awscliv2.zip
-        sudo ./aws/install
+        sudo ./aws/install        
 
     - name: Log in to Docker Hub
       run: echo "${{ secrets.DOCKER_HUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_HUB_USERNAME }}" --password-stdin
@@ -42,8 +42,15 @@ jobs:
         task_definition=$(jq -n \
           --arg IMAGE "divyaasharma/node.js-ecs-deployment:latest" \
           --arg FAMILY "ecs-fargate-td" \
+          --arg EXEC_ROLE_ARN "arn:aws:iam::471112985676:role/Elastic-Container-Service-Task" \
+          --arg TASK_ROLE_ARN "arn:aws:iam::471112985676:role/Elastic-Container-Service-Task" \
+          --arg LOG_GROUP "ecs-fargate-demo" \
+          --arg REGION "ap-south-1" \
           '{
             family: $FAMILY,
+            networkMode: "awsvpc",
+            executionRoleArn: $EXEC_ROLE_ARN,
+            taskRoleArn: $TASK_ROLE_ARN,
             containerDefinitions: [
               {
                 name: "ecs-fargate-demo",
@@ -56,9 +63,20 @@ jobs:
                     containerPort: 3000,
                     hostPort: 3000
                   }
-                ]
+                ],
+                logConfiguration: {
+                  logDriver: "awslogs",
+                  options: {
+                    "awslogs-group": $LOG_GROUP,
+                    "awslogs-region": $REGION,
+                    "awslogs-stream-prefix": "ecs"
+                  }
+                }
               }
-            ]
+            ],
+            requiresCompatibilities: ["FARGATE"],
+            cpu: "256",
+            memory: "512"
           }')
         echo "$task_definition" > task-definition.json
         aws ecs register-task-definition \
@@ -71,7 +89,7 @@ jobs:
       run: |
         aws ecs update-service \
           --cluster ecs-fargate-demo \
-          --service ecs-fargate-service  \
+          --service ecs-fargate-service \
           --task-definition ${{ steps.task-def.outputs.task_definition_arn }} \
           --force-new-deployment
 
