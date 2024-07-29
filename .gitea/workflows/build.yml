@@ -63,8 +63,8 @@ jobs:
     - name: Update ECS service
       run: |
         aws ecs update-service \
-          --cluster your-cluster-name \
-          --service your-service-name \
+          --cluster ecs-fargate-demo \
+          --service ecs-fargate-service  \
           --task-definition ${{ steps.task-def.outputs.task_definition_arn }} \
           --force-new-deployment
 
