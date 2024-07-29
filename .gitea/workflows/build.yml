@@ -1,0 +1,70 @@
+name: Deploy to ECS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Log in to Docker Hub
+      run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+    - name: Build Docker image
+      run: docker build -t divyaasharma/node.js-ecs-deployment:latest .
+
+    - name: Push Docker image
+      run: docker push divyaasharma/node.js-ecs-deployment:latest
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ap-south-1
+
+    - name: Register new task definition
+      id: task-def
+      run: |
+        task_definition=$(jq -n \
+          --arg IMAGE "divyaasharma/node.js-ecs-deployment:latest" \
+          --arg FAMILY "ecs-fargate-td" \
+          '{
+            family: $FAMILY,
+            containerDefinitions: [
+              {
+                name: "ecs-fargate-demo",
+                image: $IMAGE,
+                essential: true,
+                memory: 512,
+                cpu: 256,
+                portMappings: [
+                  {
+                    containerPort: 3000,
+                    hostPort: 3000
+                  }
+                ]
+              }
+            ]
+          }')
+        echo "$task_definition" > task-definition.json
+        aws ecs register-task-definition \
+          --cli-input-json file://task-definition.json \
+          --output json > task-definition-output.json
+        task_definition_arn=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-output.json)
+        echo "::set-output name=task_definition_arn::$task_definition_arn"
+
+    - name: Update ECS service
+      run: |
+        aws ecs update-service \
+          --cluster your-cluster-name \
+          --service your-service-name \
+          --task-definition ${{ steps.task-def.outputs.task_definition_arn }} \
+          --force-new-deployment
+
